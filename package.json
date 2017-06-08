@@ -4,7 +4,8 @@
   "description": "Web chat client using webRTC",
   "main": "index.js",
   "scripts": {
-    "budo": "budo js/index.js --live -S"
+    "budo": "budo js/index.js --live -S",
+    "build-js": "browserify js/index.js -o public/index-build.js"
   },
   "repository": {
     "type": "git",
@@ -22,6 +23,7 @@
   },
   "homepage": "https://github.com/larsselstad/webrtc-chat#readme",
   "devDependencies": {
+    "browserify": "14.4.0",
     "budo": "10.0.3",
     "choo": "5.6.2"
   }
