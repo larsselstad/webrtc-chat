@@ -1,0 +1,39 @@
+-- hele flyten
+
+1. Create Offer and set as localdescription
+pc.createOffer().then(function (offer) {
+    console.log(offer);
+
+    return pc.setLocalDescription(offer);
+});
+
+2. offer sendes til peer 2
+
+3. peer 2 setter offer som remoteDescription
+aPromise = pc.setRemoteDescription(sessionDescription);
+
+4. peer 2 lager et answer
+pc.createAnswer().then(function(answer) {
+    console.log(answer);
+
+    return pc.setLocalDescription(answer);
+});
+
+5. peer 2 sitt answer sendes til peer 1
+
+6. peer 1 setter peer 2 sitt svar som remoteDescription
+aPromise = pc.setRemoteDescription(sessionDescription);
+
+
+- kode for lage chatroom (master)
+
+1. Create Offer and set as localDescription
+
+2. Vent på answer fra klient som settes som remoteDescription
+
+
+- kode for å joine chatroom
+
+1. Legg inn offer fra master settes som remoteDescription
+
+2. Lag answer settes som localDescription
