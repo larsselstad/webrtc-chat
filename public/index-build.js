@@ -1,6 +1,10 @@
 (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
+/*globals RTCPeerConnection*/
+
 var choo = require('choo');
-var html = require('choo/html');
+
+var renderStart = require('./renderStart');
+var renderJoin = require('./renderJoin');
 
 var configuration = {
     iceServers: [{
@@ -41,14 +45,9 @@ app.use(function (state, emitter) {
     };
 
     state.pc.ondatachannel = function (evt) {
-        console.log('ondatachannel');
         var channel = evt.channel;
 
         channel.onmessage = function (event) {
-            console.log('ekstra onmessage');
-            console.log(event);
-            console.log("received: " + event.data);
-
             state.lines.push({
                 user: 'remote',
                 text: event.data
@@ -58,24 +57,147 @@ app.use(function (state, emitter) {
         };
 
         channel.onopen = function () {
-            console.log("ekstra datachannel open");
+            console.log("datachannel open");
         };
 
         channel.onclose = function () {
-            console.log("ekstra datachannel close");
+            console.log("datachannel close");
         };
     };
 
-    state.dc= state.pc.createDataChannel('sendChannel');
+    state.dc = state.pc.createDataChannel('sendChannel');
 });
 
-app.route('/', function (state, emit) {
+app.route('*', function (state, emit) {
+    if (!state.join) {
+        return renderStart(state, emit);
+    } else {
+        return renderJoin(state, emit);
+    }
+});
+
+app.mount('body');
+
+},{"./renderJoin":2,"./renderStart":3,"choo":8}],2:[function(require,module,exports){
+var html = require('choo/html');
+
+module.exports = function renderJoin(state, emit) {
+    if (state.joinStep === 1) {
+        return html `
+            <body>
+                <h1>Legg inn Offer</h1>
+                <form action="/" onsubmit=${offerSubmit}>
+                    <textarea name="offer" id="offer" cols="30" rows="10"></textarea>
+                    <div><button>OK!</button></div>
+                </form>
+            </body>
+        `;
+    } else if (state.joinStep === 2) {
+        state.pc.createAnswer().then(function (answer) {
+            state.answer = answer;
+
+            state.pc.setLocalDescription(answer);
+
+            state.joinStep = 3;
+
+            emit('render');
+        }).catch(function(e) {
+            console.log(e);
+            console.log("createAnswer failed");
+        });
+
+        return html `
+            <body>
+                <h1>Lager answer</h1>
+            </body>
+        `;
+    } else if (state.joinStep === 3) {
+        return html `
+            <body>
+                <h1>Answer</h1>
+                <textarea name="answer" id="answer" cols="30" rows="10">${JSON.stringify(state.answer)}</textarea>
+                <div><button onclick=${copyAnswer}>Kopier tekst</button></div>
+                <div><button onclick=${answerOk}>OK!</button></div>
+            </body>
+        `;
+    } else if (state.joinStep === 4) {
+        return html`
+            <body>
+                <h1>Start chatting</h1>
+                <ul>
+                    ${state.lines.map(function (line) {
+                        return html`<li>${line.user}: ${line.text}</li>`;
+                    })}
+                </ul>
+                <form action="/" onsubmit=${lineSend}>
+                    <div>
+                        <input type="text" placeholder="Skriv noe" />
+                    </div>
+                    <button>Send</button>
+                </form>
+            </body>
+        `;
+    } else {
+        return html `
+            <body>
+                <h1>Noe gikk galt i step: ${state.joinStep}</h1>
+            </body>
+        `;
+    }
+
+    function offerSubmit(e) {
+        e.preventDefault();
+
+        var textarea = e.target.querySelector('textarea');
+        state.answer = textarea.value;
+
+        state.pc.setRemoteDescription(JSON.parse(state.answer)).then(function () {
+            state.joinStep = 2;
+
+            emit('render');
+        }).catch(function (e) {
+            console.log(e);
+            console.log('setRemoteDescription feilet på joiner');
+        });
+    }
+
+    function answerOk() {
+        state.joinStep = 4;
+
+        emit('render');
+    }
+
+    function lineSend(e) {
+        e.preventDefault();
+
+        var line = e.target.querySelector('input').value;
+
+        state.lines.push({
+            user: 'me',
+            text: line
+        });
+
+        state.dc.send(line);
+
+        emit('render');
+    }
+
+    function copyAnswer() {
+        document.querySelector('#answer').select();
+        document.execCommand('copy');
+    }
+};
+
+},{"choo/html":7}],3:[function(require,module,exports){
+var html = require('choo/html');
+
+module.exports = function renderStart(state, emit) {
     if (state.step === 0) {
         return html`
             <body>
                 <h1>Velg type chat</h1>
-                <div><button onclick=${startChatroom}>Nytt chatrom</button></div>
-                <div><a href="/join">Bli med i chatrom</a></div>
+                <button onclick=${startChatroom}>Start new chat</button>
+                <button onclick=${joinChatrom}>Join chat</button>
             </body>
         `;
     } else if (state.step === 1) {
@@ -184,124 +306,19 @@ app.route('/', function (state, emit) {
         emit('render');
     }
 
+    function joinChatrom() {
+        state.join = true;
+
+        emit('render');
+    }
+
     function copyOffer() {
         document.querySelector('#offer').select();
         document.execCommand('copy');
     }
-});
+};
 
-app.route('/join', function (state, emit) {
-    if (state.joinStep === 1) {
-        return html `
-            <body>
-                <h1>Legg inn Offer</h1>
-                <form action="/" onsubmit=${offerSubmit}>
-                    <textarea name="offer" id="offer" cols="30" rows="10"></textarea>
-                    <div><button>OK!</button></div>
-                </form>
-            </body>
-        `;
-    } else if (state.joinStep === 2) {
-        state.pc.createAnswer().then(function (answer) {
-            state.answer = answer;
-
-            state.pc.setLocalDescription(answer);
-
-            state.joinStep = 3;
-
-            emit('render');
-        }).catch(function(e) {
-            console.log(e);
-            console.log("createAnswer failed");
-        });
-
-        return html `
-            <body>
-                <h1>Lager answer</h1>
-            </body>
-        `;
-    } else if (state.joinStep === 3) {
-        return html `
-            <body>
-                <h1>Answer</h1>
-                <textarea name="answer" id="answer" cols="30" rows="10">${JSON.stringify(state.answer)}</textarea>
-                <div><button onclick=${copyAnswer}>Kopier tekst</button></div>
-                <div><button onclick=${answerOk}>OK!</button></div>
-            </body>
-        `;
-    } else if (state.joinStep === 4) {
-        return html`
-            <body>
-                <h1>Start chatting</h1>
-                <ul>
-                    ${state.lines.map(function (line) {
-                        return html`<li>${line.user}: ${line.text}</li>`;
-                    })}
-                </ul>
-                <form action="/" onsubmit=${lineSend}>
-                    <div>
-                        <input type="text" placeholder="Skriv noe" />
-                    </div>
-                    <button>Send</button>
-                </form>
-            </body>
-        `;
-    } else {
-        return html `
-            <body>
-                <h1>Noe gikk galt i step: ${state.joinStep}</h1>
-            </body>
-        `;
-    }
-
-    function offerSubmit(e) {
-        e.preventDefault();
-
-        var textarea = e.target.querySelector('textarea');
-        state.answer = textarea.value;
-
-        state.pc.setRemoteDescription(JSON.parse(state.answer)).then(function () {
-            state.joinStep = 2;
-
-            emit('render');
-        }).catch(function (e) {
-            console.log(e);
-            console.log('setRemoteDescription feilet på joiner');
-        });
-    }
-
-    function answerOk() {
-        state.joinStep = 4;
-
-        emit('render');
-    }
-
-    function lineSend(e) {
-        e.preventDefault();
-
-        var line = e.target.querySelector('input').value;
-
-        state.lines.push({
-            user: 'me',
-            text: line
-        });
-
-        console.log(line);
-
-        state.dc.send(line);
-
-        emit('render');
-    }
-
-    function copyAnswer() {
-        document.querySelector('#answer').select();
-        document.execCommand('copy');
-    }
-});
-
-app.mount('body');
-
-},{"choo":6,"choo/html":5}],2:[function(require,module,exports){
+},{"choo/html":7}],4:[function(require,module,exports){
 (function (global){
 'use strict';
 
@@ -795,7 +812,7 @@ var objectKeys = Object.keys || function (obj) {
 };
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"util/":26}],3:[function(require,module,exports){
+},{"util/":28}],5:[function(require,module,exports){
 var document = require('global/document')
 var hyperx = require('hyperx')
 var onload = require('on-load')
@@ -950,12 +967,12 @@ module.exports = hyperx(belCreateElement, {comments: true})
 module.exports.default = module.exports
 module.exports.createElement = belCreateElement
 
-},{"global/document":8,"hyperx":11,"on-load":22}],4:[function(require,module,exports){
+},{"global/document":10,"hyperx":13,"on-load":24}],6:[function(require,module,exports){
 
-},{}],5:[function(require,module,exports){
+},{}],7:[function(require,module,exports){
 module.exports = require('bel')
 
-},{"bel":3}],6:[function(require,module,exports){
+},{"bel":5}],8:[function(require,module,exports){
 var documentReady = require('document-ready')
 var nanohistory = require('nanohistory')
 var nanorouter = require('nanorouter')
@@ -1095,7 +1112,7 @@ function createLocation () {
   return pathname + hash
 }
 
-},{"assert":2,"document-ready":7,"nanobus":12,"nanohistory":13,"nanohref":14,"nanomorph":15,"nanomount":18,"nanoraf":19,"nanorouter":20}],7:[function(require,module,exports){
+},{"assert":4,"document-ready":9,"nanobus":14,"nanohistory":15,"nanohref":16,"nanomorph":17,"nanomount":20,"nanoraf":21,"nanorouter":22}],9:[function(require,module,exports){
 'use strict'
 
 var assert = require('assert')
@@ -1114,7 +1131,7 @@ function ready (callback) {
   })
 }
 
-},{"assert":2}],8:[function(require,module,exports){
+},{"assert":4}],10:[function(require,module,exports){
 (function (global){
 var topLevel = typeof global !== 'undefined' ? global :
     typeof window !== 'undefined' ? window : {}
@@ -1135,7 +1152,7 @@ if (typeof document !== 'undefined') {
 module.exports = doccy;
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"min-document":4}],9:[function(require,module,exports){
+},{"min-document":6}],11:[function(require,module,exports){
 (function (global){
 var win;
 
@@ -1152,7 +1169,7 @@ if (typeof window !== "undefined") {
 module.exports = win;
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}],10:[function(require,module,exports){
+},{}],12:[function(require,module,exports){
 module.exports = attributeToProperty
 
 var transform = {
@@ -1173,7 +1190,7 @@ function attributeToProperty (h) {
   }
 }
 
-},{}],11:[function(require,module,exports){
+},{}],13:[function(require,module,exports){
 var attrToProp = require('hyperscript-attribute-to-property')
 
 var VAR = 0, TEXT = 1, OPEN = 2, CLOSE = 3, ATTR = 4
@@ -1453,7 +1470,7 @@ var closeRE = RegExp('^(' + [
 ].join('|') + ')(?:[\.#][a-zA-Z0-9\u007F-\uFFFF_:-]+)*$')
 function selfClosing (tag) { return closeRE.test(tag) }
 
-},{"hyperscript-attribute-to-property":10}],12:[function(require,module,exports){
+},{"hyperscript-attribute-to-property":12}],14:[function(require,module,exports){
 var nanotiming = require('nanotiming')
 var assert = require('assert')
 
@@ -1601,7 +1618,7 @@ Nanobus.prototype._emit = function (arr, eventName, data) {
   }
 }
 
-},{"assert":2,"nanotiming":21}],13:[function(require,module,exports){
+},{"assert":4,"nanotiming":23}],15:[function(require,module,exports){
 var assert = require('assert')
 
 module.exports = history
@@ -1615,7 +1632,7 @@ function history (cb) {
   }
 }
 
-},{"assert":2}],14:[function(require,module,exports){
+},{"assert":4}],16:[function(require,module,exports){
 var assert = require('assert')
 
 module.exports = href
@@ -1651,7 +1668,7 @@ function href (cb, root) {
   }
 }
 
-},{"assert":2}],15:[function(require,module,exports){
+},{"assert":4}],17:[function(require,module,exports){
 var assert = require('assert')
 var morph = require('./lib/morph')
 var rootLabelRegex = /^data-onloadid/
@@ -1746,7 +1763,7 @@ function persistStatefulRoot (newNode, oldNode) {
   }
 }
 
-},{"./lib/morph":17,"assert":2}],16:[function(require,module,exports){
+},{"./lib/morph":19,"assert":4}],18:[function(require,module,exports){
 module.exports = [
   // attribute events (can be set with attributes)
   'onclick',
@@ -1786,7 +1803,7 @@ module.exports = [
   'onfocusout'
 ]
 
-},{}],17:[function(require,module,exports){
+},{}],19:[function(require,module,exports){
 var events = require('./events')
 var eventsLength = events.length
 
@@ -1961,7 +1978,7 @@ function updateAttribute (newNode, oldNode, name) {
   }
 }
 
-},{"./events":16}],18:[function(require,module,exports){
+},{"./events":18}],20:[function(require,module,exports){
 var nanomorph = require('nanomorph')
 var assert = require('assert')
 
@@ -1983,7 +2000,7 @@ function nanomount (target, newTree) {
     target.outerHTML.nodeName + '.')
 }
 
-},{"assert":2,"nanomorph":15}],19:[function(require,module,exports){
+},{"assert":4,"nanomorph":17}],21:[function(require,module,exports){
 'use strict'
 
 var assert = require('assert')
@@ -2020,7 +2037,7 @@ function nanoraf (render, raf) {
   }
 }
 
-},{"assert":2}],20:[function(require,module,exports){
+},{"assert":4}],22:[function(require,module,exports){
 var wayfarer = require('wayfarer')
 
 var isLocalFile = (/file:\/\//.test(typeof window === 'object' &&
@@ -2080,7 +2097,7 @@ function pathname (route, isElectron) {
   return route.replace(suffix, '').replace(normalize, '/')
 }
 
-},{"wayfarer":27}],21:[function(require,module,exports){
+},{"wayfarer":29}],23:[function(require,module,exports){
 var assert = require('assert')
 
 module.exports = Nanotiming
@@ -2106,7 +2123,7 @@ Nanotiming.prototype.end = function (partial) {
   window.performance.measure(name, name + '-start', name + '-end')
 }
 
-},{"assert":2}],22:[function(require,module,exports){
+},{"assert":4}],24:[function(require,module,exports){
 /* global MutationObserver */
 var document = require('global/document')
 var window = require('global/window')
@@ -2195,7 +2212,7 @@ function eachMutation (nodes, fn) {
   }
 }
 
-},{"global/document":8,"global/window":9}],23:[function(require,module,exports){
+},{"global/document":10,"global/window":11}],25:[function(require,module,exports){
 // shim for using process in browser
 var process = module.exports = {};
 
@@ -2381,7 +2398,7 @@ process.chdir = function (dir) {
 };
 process.umask = function() { return 0; };
 
-},{}],24:[function(require,module,exports){
+},{}],26:[function(require,module,exports){
 if (typeof Object.create === 'function') {
   // implementation from standard node.js 'util' module
   module.exports = function inherits(ctor, superCtor) {
@@ -2406,14 +2423,14 @@ if (typeof Object.create === 'function') {
   }
 }
 
-},{}],25:[function(require,module,exports){
+},{}],27:[function(require,module,exports){
 module.exports = function isBuffer(arg) {
   return arg && typeof arg === 'object'
     && typeof arg.copy === 'function'
     && typeof arg.fill === 'function'
     && typeof arg.readUInt8 === 'function';
 }
-},{}],26:[function(require,module,exports){
+},{}],28:[function(require,module,exports){
 (function (process,global){
 // Copyright Joyent, Inc. and other Node contributors.
 //
@@ -3003,7 +3020,7 @@ function hasOwnProperty(obj, prop) {
 }
 
 }).call(this,require('_process'),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./support/isBuffer":25,"_process":23,"inherits":24}],27:[function(require,module,exports){
+},{"./support/isBuffer":27,"_process":25,"inherits":26}],29:[function(require,module,exports){
 var assert = require('assert')
 var trie = require('./trie')
 
@@ -3070,7 +3087,7 @@ function Wayfarer (dft) {
   }
 }
 
-},{"./trie":28,"assert":2}],28:[function(require,module,exports){
+},{"./trie":30,"assert":4}],30:[function(require,module,exports){
 var mutate = require('xtend/mutable')
 var assert = require('assert')
 var xtend = require('xtend')
@@ -3210,7 +3227,7 @@ Trie.prototype.mount = function (route, trie) {
   }
 }
 
-},{"assert":2,"xtend":29,"xtend/mutable":30}],29:[function(require,module,exports){
+},{"assert":4,"xtend":31,"xtend/mutable":32}],31:[function(require,module,exports){
 module.exports = extend
 
 var hasOwnProperty = Object.prototype.hasOwnProperty;
@@ -3231,7 +3248,7 @@ function extend() {
     return target
 }
 
-},{}],30:[function(require,module,exports){
+},{}],32:[function(require,module,exports){
 module.exports = extend
 
 var hasOwnProperty = Object.prototype.hasOwnProperty;

@@ -4,7 +4,7 @@
   "description": "Web chat client using webRTC",
   "main": "index.js",
   "scripts": {
-    "budo": "budo js/index.js --live -S",
+    "budo": "budo js/index.js:public/index-build.js --live -S",
     "build-js": "browserify js/index.js -o public/index-build.js"
   },
   "repository": {
